@@ -1,0 +1,237 @@
+Thiết kế phải tuân theo schema database và quy ước sau:
+
+Entities & Fields:
+
+User:
+- id, name, email, phone, address
+- role (user | admin)
+- status (active | locked)
+
+Category:
+- id, name
+
+Product:
+- id, name, price, category_id, description
+- sold_count
+- avg_rating
+- review_count
+- images[] (từ product_images.image_url)
+
+Order:
+- id, user_id, total_price
+- status (pending | confirmed | shipping | completed | cancelled)
+- payment_method (COD | BANK_TRANSFER)
+- name, phone, address
+- created_at
+- items[] (order_items)
+
+OrderItem:
+- product_id, name, price, image, quantity
+
+Review:
+- user_id, product_id
+- rating (1–5)
+- comment
+- created_at
+
+Quy tắc:
+- Không đổi tên field
+- Không thêm/xóa status
+- Luồng trạng thái:
+  pending → confirmed → shipping → completed
+  hoặc cancelled
+
+UI quy ước:
+- Product dùng images[] (gallery)
+- Hiển thị sold_count, avg_rating, review_count
+- Order luôn có items[]
+- Status hiển thị bằng badge màu
+- Rating hiển thị dạng sao (1–5)
+---------------------------------------------
+Thiết kế UI người dùng web app đặt đồ ăn nhanh (Tiếng Việt).
+
+BẮT BUỘC tuân theo Shared Contract.
+
+Phong cách:
+- Chủ đề đồ ăn nhanh (đỏ, vàng, cam)
+- Hiện đại, đơn giản
+- Responsive
+
+Pages:
+
+1. Trang chủ:
+- Banner
+- Danh mục
+- Sản phẩm nổi bật (hiển thị image, name, price, sold_count, rating)
+
+2. Trang sản phẩm:
+- Grid:
+  - image (images[0])
+  - name
+  - price
+  - sold_count
+  - avg_rating + review_count
+- Search
+- Filter category_id
+- Sort (giá, sold_count, rating)
+- Empty state
+
+3. Trang chi tiết sản phẩm:
+- Gallery (images[])
+- name, price, description
+- sold_count
+- avg_rating + review_count
+- Danh sách reviews (rating + comment)
+- Chọn quantity
+- Add to cart
+
+4. Giỏ hàng:
+- items[] (image, name, price, quantity)
+- Update quantity
+- Remove item
+- total_price
+- Empty state
+
+5. Thanh toán:
+- Form (name, phone, address)
+- payment_method (COD | BANK_TRANSFER)
+- Nếu BANK_TRANSFER: hiển thị QR + info (chỉ UI)
+- Validate
+- Submit → tạo order (status = pending)
+
+6. Trang thành công:
+- Hiển thị order.id
+- Nút xem lịch sử
+
+7. Auth:
+- Login / Register / Forgot Password / Change Password
+- Validate
+
+8. Lịch sử đơn:
+- List:
+  - id
+  - total_price
+  - status
+  - created_at
+- Detail:
+  - items[]
+  - status
+
+9. Đánh giá sản phẩm:
+- Form:
+  - rating (1–5 sao)
+  - comment
+- Hiển thị danh sách review
+
+Interactions:
+- Loading / Empty / Error
+- Toast
+- Hover / Disabled
+
+Consistency:
+- Không đổi field, không đổi status
+- Dùng đúng cấu trúc từ contract
+
+Output:
+- UI đầy đủ, có thể implement trực tiếp theo schema
+
+---------
+
+Thiết kế dashboard admin cho Web-app bán đồ ăn nhanh (Tiếng Việt).
+
+BẮT BUỘC tuân theo Shared Contract.
+
+Phong cách:
+- Dashboard rõ ràng, data-focused
+- Desktop-first
+
+Layout:
+- Sidebar + header + content
+
+Pages:
+
+1. Dashboard:
+- Tổng orders
+- Tổng revenue (total_price)
+- Biểu đồ
+
+2. Quản lý sản phẩm:
+- Table:
+  - image (images[0])
+  - name
+  - price
+  - category_id
+  - sold_count
+  - avg_rating
+- Search + filter
+- CRUD
+
+Form:
+- name
+- price
+- category_id
+- description
+- images[] upload nhiều ảnh qua image kit
+- Preview ảnh
+- Validate
+
+3. Quản lý danh mục:
+- Table (id, name)
+- Add/edit/delete (confirm)
+
+4. Quản lý đơn hàng:
+- Table:
+  - id
+  - user_id
+  - total_price
+  - status
+  - payment_method
+  - created_at
+- Filter status
+
+Chi tiết:
+- name, phone, address
+- items[]
+- total_price
+- status
+- Update status:
+  pending → confirmed → shipping → completed
+  hoặc cancelled
+- Confirm khi đổi trạng thái
+
+5. Quản lý đánh giá:
+- Table reviews:
+  - product_id
+  - user_id
+  - rating
+  - comment
+  - created_at
+- Có thể xóa review
+
+6. Quản lý user:
+- Table:
+  - name
+  - email
+  - status
+- Lock / unlock
+
+States:
+- Loading / Empty / Error
+- Pagination
+- Toast
+
+Components:
+- Table
+- Modal
+- Form
+- Image upload
+- Status badge
+- Rating display
+
+Consistency:
+- Không đổi field
+- Không tạo status mới
+- Luôn đúng flow order
+
+Output:
+- UI có thể implement trực tiếp theo schema

@@ -1,0 +1,17 @@
+node_modules
+npm-debug.log
+dist
+.env
+.env.local
+.env.*.local
+.DS_Store
+logs
+.git
+.gitignore
+README.md
+jest.config.ts
+tsconfig.test.json
+tests/
+.eslintrc.json
+.prettierrc
+coverage/

@@ -1,0 +1,167 @@
+* Xác lập kiến trúc tổng thể backend (REST API, phân tầng controller → service → repository → database, tách module theo entity: User, Category, Product, Order, Review)
+
+* Thiết kế schema database đúng Shared Contract : PostgreSQL/prisma
+
+  * Bảng: users, categories, products, product_images, orders, order_items, reviews
+  * Ràng buộc: khóa ngoại (product.category_id, order.user_id, review.product_id, review.user_id, order_items.product_id)
+  * Index: product(category_id, sold_count, avg_rating), order(user_id, status), review(product_id)
+
+* Implement authentication & authorization:
+
+  * Đăng ký, đăng nhập (JWT/session)
+  * Phân quyền role (user | admin)
+  * Middleware kiểm tra status (active | locked)
+
+* User service:
+
+  * CRUD user (admin)
+  * Lock/unlock user
+  * Update profile (name, phone, address)
+
+* Category service:
+
+  * CRUD category
+  * Validate uniqueness name
+
+* Product service:
+
+  * CRUD product
+  * Upload & quản lý images[] (mapping product_images)
+  * Query list:
+
+    * Search theo name
+    * Filter category_id
+    * Sort (price, sold_count, avg_rating)
+  * Aggregate:
+
+    * sold_count (từ order_items)
+    * avg_rating, review_count (từ reviews)
+
+* Product detail service:
+
+  * Lấy images[]
+  * Lấy reviews theo product_id (pagination)
+  * Trả về đầy đủ: sold_count, avg_rating, review_count
+
+* Cart logic (stateless hoặc session-based):
+
+  * Add/remove/update item
+  * Validate product tồn tại, giá hiện tại
+  * Tính total_price phía server
+
+* Order service:
+
+  * Tạo order:
+
+    * Nhận items[]
+    * Snapshot: name, price, image vào order_items
+    * Tính total_price
+    * status = pending
+  * Validate payment_method (COD | BANK_TRANSFER)
+  * Lưu name, phone, address
+
+* Order state machine:
+
+  * Enforce flow:
+
+    * pending → confirmed → shipping → completed
+    * hoặc cancelled
+  * Reject transition sai
+  * API update status (admin)
+
+* Order side effects:
+
+  * Khi completed:
+
+    * Tăng product.sold_count
+  * Đảm bảo idempotency (tránh double update)
+
+* Order query:
+
+  * User:
+
+    * List theo user_id
+    * Detail gồm items[]
+  * Admin:
+
+    * List toàn bộ
+    * Filter status
+    * Pagination
+
+* Review service:
+
+  * Tạo review:
+
+    * Chỉ cho phép nếu user đã có order completed với product_id
+  * CRUD (admin delete)
+  * Update aggregate:
+
+    * avg_rating
+    * review_count
+
+* Validation layer:
+
+  * Input schema (name, phone, address, rating 1–5…)
+  * Business rule (quantity > 0, product tồn tại…)
+
+* Error handling:
+
+  * Chuẩn hóa response (code, message)
+  * Phân loại: validation / business / system
+
+* API design:
+
+  * Endpoint theo resource:
+
+    * /auth/*
+    * /users
+    * /categories
+    * /products
+    * /orders
+    * /reviews
+  * Pagination, filter, sort consistent
+
+* File/image service:
+
+  * Tích hợp upload (ImageKit) #Tham khảo tại Imagekit Docs
+  * Lưu image_url vào product_images
+  * Support multiple images[]
+
+* Caching:
+
+  * Cache product list, category list
+  * Invalidate khi CRUD
+
+* Concurrency & consistency:
+
+  * Transaction khi tạo order + order_items
+  * Lock logic khi update status
+
+* Logging & monitoring:
+
+  * Request log
+  * Error log
+  * Audit log cho admin actions
+
+* Security:
+
+  * Sanitize input
+  * Rate limit auth
+  * Protect admin routes
+
+
+* Testing:
+
+  * Unit test service layer
+  * Integration test API (order flow, review rule)
+
+* Deployment:
+
+  * Env config (DB, JWT secret)
+  * Migration script
+  * Seed data (categories, sample products)
+
+* Documentation:
+
+  * API spec (OpenAPI/Swagger)
+  * Mô tả rõ field đúng contract (không đổi tên, không thêm status)

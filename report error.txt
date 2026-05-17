@@ -1,0 +1,10 @@
+-Tính năng Thêm danh mục (User)
+-Tính năng Thêm sản phẩm: Lỗi khi post ảnh (User)
+Logs : prisma:query SELECT "public"."users"."id", "public"."users"."email", "public"."users"."role"::text, "public"."users"."status"::text FROM "public"."users" WHERE ("public"."users"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+2026-05-07 18:15:11 [error]: Unhandled error:
+POST /api/products/cmove3dfp0001860pol4l0yka/images 500 193.816 ms - 122
+2026-05-07 18:15:11 [info]: POST /api/products/cmove3dfp0001860pol4l0yka/images
+- Lỗi (User) : Unexpected Application Error!
+Cannot read properties of undefined (reading 'length')
+tại /order ; /products
+- Lỗi too many request ở admin

@@ -1,0 +1,49 @@
+# ─── Build stage ──────────────────────────────────────────────────────────────
+FROM node:20-slim AS builder
+
+WORKDIR /app
+
+COPY package*.json ./
+# npm ci installs all deps (including devDeps: prisma CLI + typescript needed for build)
+RUN npm ci
+
+COPY tsconfig.json ./
+COPY prisma ./prisma/
+COPY src ./src/
+
+# Use local prisma binary to avoid npx downloading a newer incompatible version
+RUN ./node_modules/.bin/prisma generate
+RUN npm run build
+
+# ─── Production stage ─────────────────────────────────────────────────────────
+FROM node:20-slim AS runner
+
+WORKDIR /app
+
+# Install dumb-init for proper signal handling
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    dumb-init \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd -S appgroup && useradd -S appuser -G appgroup
+
+COPY package*.json ./
+RUN npm ci && npm cache clean --force
+
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+
+# Create logs directory
+RUN mkdir -p logs && chown -R appuser:appgroup /app
+
+USER appuser
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3000/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["node", "dist/main.js"]
