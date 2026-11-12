@@ -1,0 +1,25 @@
+# Thay your-domain.com bằng tên miền của bạn (ví dụ: api.food.vn)
+api.your-domain.com {
+    # Tự động chuyển tiếp request tới backend Rust chạy tại cổng 3000
+    reverse_proxy 127.0.0.1:3000
+
+    # Cấu hình nén gzip / zstd
+    encode gzip zstd
+
+    # Header bảo mật
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    # Ghi log request
+    log {
+        output file /var/log/caddy/fastfood_api.log {
+            roll_size 50mb
+            roll_keep 5
+        }
+    }
+}
+

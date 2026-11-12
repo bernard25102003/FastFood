@@ -213,7 +213,28 @@ function OrderDetailsModal({ order, onClose, onStatusUpdated }: OrderDetailsModa
                     {statusLabels[currentStatus]}
                   </span>
                 </p>
-                <p><span className="text-gray-600">Thanh toán:</span> {order.paymentMethod === 'COD' ? 'COD' : 'Chuyển khoản'}</p>
+                <p>
+                  <span className="text-gray-600">Thanh toán:</span>{' '}
+                  <span className="font-medium">{order.paymentMethod === 'COD' ? 'Tiền mặt khi nhận (COD)' : 'Chuyển khoản (VietQR)'}</span>
+                </p>
+                {order.paymentMethod === 'BANK_TRANSFER' && (
+                  <>
+                    <p>
+                      <span className="text-gray-600">Thanh toán:</span>{' '}
+                      <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                        order.paymentStatus === 'PAID' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {order.paymentStatus === 'PAID' ? 'ĐÃ THANH TOÁN (PAID)' : 'CHƯA THANH TOÁN (UNPAID)'}
+                      </span>
+                    </p>
+                    {order.paymentCode && (
+                      <p>
+                        <span className="text-gray-600">Mã chuyển khoản:</span>{' '}
+                        <span className="font-mono font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded">{order.paymentCode}</span>
+                      </p>
+                    )}
+                  </>
+                )}
                 <p><span className="text-gray-600">Thời gian:</span> {new Date(order.createdAt).toLocaleString('vi-VN')}</p>
               </div>
             </div>

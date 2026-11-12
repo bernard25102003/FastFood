@@ -1,0 +1,57 @@
+[package]
+name = "fastfood-backend"
+version = "1.0.0"
+edition = "2021"
+authors = ["FastFood Dev Team"]
+description = "FastFood High-Performance Backend API written in Rust"
+
+[dependencies]
+# Web framework & async runtime
+axum = { version = "0.7", features = ["multipart", "macros"] }
+tokio = { version = "1.38", features = ["full"] }
+tower = { version = "0.4", features = ["util"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "limit"] }
+
+# Database (TiDB Cloud MySQL compatible with TLS via rustls)
+sqlx = { version = "0.7", features = [
+    "runtime-tokio-rustls",
+    "mysql",
+    "chrono",
+    "uuid",
+    "macros"
+] }
+
+# Serialization & Data types
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.8", features = ["v4", "serde"] }
+
+# Auth & Security
+jsonwebtoken = "9.3"
+bcrypt = "0.15"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+
+# HTTP Client (for Brevo Email & ImageKit external APIs)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
+
+# Environment & Config
+dotenvy = "0.15"
+
+# Logging & Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Utilities
+regex = "1.10"
+rand = "0.8"
+thiserror = "1.0"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

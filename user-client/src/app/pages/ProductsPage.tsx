@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import {
   Search,
@@ -88,10 +88,14 @@ export function ProductsPage() {
         page: currentPage,
       })
       .then((res) => {
-        setProducts(res?.items ?? []);
-        setTotal(res?.pagination?.total ?? 0);
+        const list = Array.isArray(res) ? res : (res?.items ?? []);
+        setProducts(list);
+        setTotal(res?.pagination?.total ?? list.length);
       })
-      .catch(() => {});
+      .catch(() => {
+        setProducts([]);
+        setTotal(0);
+      });
   }, [searchQuery, selectedCategory, sortBy, currentPage]);
 
   const handleCategoryChange = (categoryId: string) => {
@@ -669,7 +673,7 @@ export function ProductsPage() {
         {/* BODY */}
         <div className="pp-body">
 
-          {products.length === 0 ? (
+          {(products || []).length === 0 ? (
             <div className="pp-empty">
               <h2>😔 Không tìm thấy sản phẩm</h2>
             </div>
@@ -687,7 +691,7 @@ export function ProductsPage() {
                   viewMode === 'list' ? 'list-mode' : ''
                 }`}
               >
-                {products.map((product) => (
+                {(products || []).map((product) => (
                   <Link
                     key={product.id}
                     to={`/products/${product.id}`}

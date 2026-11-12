@@ -143,6 +143,9 @@ export interface Order {
   status: OrderStatus;
   totalPrice: string;
   paymentMethod: PaymentMethod;
+  paymentStatus?: 'UNPAID' | 'PAID' | 'REFUNDED';
+  paymentCode?: string;
+  vietQrUrl?: string;
   recipientName: string;
   recipientPhone: string;
   recipientAddress: string;

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, Navigate } from 'react-router';
-import { Package, ChevronRight, Clock3, Truck, Flame } from 'lucide-react';
+import { Package, ChevronRight, Clock3, Truck, Flame, QrCode } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { ordersApi, type Order, type OrderStatus } from '../services/api';
 
@@ -27,12 +27,17 @@ export function OrdersPage() {
   useEffect(() => {
     if (!isAuthenticated) return;
     ordersApi.getMyOrders({ limit: 50 })
-      .then(res => setOrders(res?.items ?? []))
-      .catch(() => {});
+      .then(res => {
+        const orderList = Array.isArray(res) ? res : (res?.items ?? []);
+        setOrders(orderList);
+      })
+      .catch(() => setOrders([]));
   }, [isAuthenticated]);
 
   if (loading) return null;
   if (!isAuthenticated) return <Navigate to="/login?redirect=/orders" replace />;
+
+  const safeOrders = Array.isArray(orders) ? orders : [];
 
   return (
     <div>
@@ -47,14 +52,14 @@ export function OrdersPage() {
 
         <div className="od-body">
           <div className="od-head-row">
-            <div className="od-head-main">Bạn có {orders.length} đơn hàng gần đây</div>
+            <div className="od-head-main">Bạn có {safeOrders.length} đơn hàng gần đây</div>
             <div className="od-head-meta">
               <span><Truck size={14} /> Theo dõi giao hàng dễ dàng</span>
               <span><Clock3 size={14} /> Cập nhật trạng thái liên tục</span>
             </div>
           </div>
 
-          {orders.length === 0 ? (
+          {safeOrders.length === 0 ? (
             <div className="od-empty-card">
               <div className="od-empty-badge">No orders yet</div>
               <Package className="od-empty-icon" />
@@ -66,7 +71,7 @@ export function OrdersPage() {
             </div>
           ) : (
             <div className="od-list">
-              {orders.map(order => (
+              {safeOrders.map(order => (
                 <Link
                   key={order.id}
                   to={`/orders/${order.id}`}
@@ -74,42 +79,56 @@ export function OrdersPage() {
                 >
                   <div className="od-card-top">
                     <div>
-                      <div className="od-order-no">Đơn hàng #{order.orderNumber}</div>
+                      <div className="od-order-no">Đơn hàng #{order.orderNumber || order.id}</div>
                       <div className="od-order-time">
                         <Clock3 size={13} />
                         {new Date(order.createdAt).toLocaleString('vi-VN')}
                       </div>
                     </div>
-                    <span className={statusColors[order.status]}>
-                      {statusLabels[order.status]}
+                    <span className={statusColors[order.status] || 'od-status'}>
+                      {statusLabels[order.status] || order.status}
                     </span>
                   </div>
 
                   <div className="od-items">
-                    {order.items.map((item) => (
-                      <div key={item.id} className="od-item-row">
-                        <div className="od-item-thumb">
-                          {item.productImage && (
-                            <img src={item.productImage} alt={item.productName} className="od-item-thumb-img" />
-                          )}
-                        </div>
-                        <div className="od-item-main">
-                          <div className="od-item-name">{item.productName}</div>
-                          <div className="od-item-meta">
-                            {item.quantity} x {parseFloat(item.productPrice).toLocaleString('vi-VN')}đ
+                    {(order.items || []).map((item) => {
+                      const itemName = item.productName || item.name || 'Món ăn';
+                      const itemImg = item.productImage || item.image;
+                      const itemPrice = item.productPrice ?? item.price ?? 0;
+                      return (
+                        <div key={item.id} className="od-item-row">
+                          <div className="od-item-thumb">
+                            {itemImg && (
+                              <img src={itemImg} alt={itemName} className="od-item-thumb-img" />
+                            )}
                           </div>
+                          <div className="od-item-main">
+                            <div className="od-item-name">{itemName}</div>
+                            <div className="od-item-meta">
+                              {item.quantity} x {Number(itemPrice).toLocaleString('vi-VN')}đ
+                            </div>
+                          </div>
+                          <div className="od-item-hot"><Flame size={12} /> Món ngon</div>
                         </div>
-                        <div className="od-item-hot"><Flame size={12} /> Món ngon</div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   <div className="od-total-row">
                     <span className="od-total-label">Tổng cộng</span>
                     <span className="od-total-price">
-                      {parseFloat(order.totalPrice).toLocaleString('vi-VN')}đ
+                      {Number(order.totalPrice || 0).toLocaleString('vi-VN')}đ
                     </span>
                   </div>
+
+                  {order.paymentMethod === 'BANK_TRANSFER' && order.paymentStatus !== 'PAID' && order.status === 'PENDING' && (
+                    <div className="mt-3 py-2 px-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between text-xs text-amber-900 font-medium">
+                      <span className="flex items-center gap-1.5 font-bold text-orange-700">
+                        <QrCode size={14} /> Chờ thanh toán VietQR {order.paymentCode ? `(${order.paymentCode})` : ''}
+                      </span>
+                      <span className="text-orange-600 font-bold hover:underline">Xem mã QR & Thanh toán ➔</span>
+                    </div>
+                  )}
                 </Link>
               ))}
             </div>

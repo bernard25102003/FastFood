@@ -93,8 +93,18 @@ export const authApi = {
   login: (email: string, password: string) =>
     request<AuthResponse>('/auth/login', { method: 'POST', body: { email, password }, auth: false }),
 
-  register: (data: { email: string; password: string; name: string; phone?: string; address?: string }) =>
+  register: (data: { email: string; password: string; name: string; phone?: string; address?: string; otp?: string }) =>
     request<AuthResponse>('/auth/register', { method: 'POST', body: data, auth: false }),
+
+  sendRegisterOtp: (email: string) =>
+    request<{ email: string; expiresInSeconds: number }>('/auth/send-register-otp', {
+      method: 'POST',
+      body: { email },
+      auth: false,
+    }),
+
+  registerWithOtp: (data: { email: string; otp: string; password: string; name: string; phone?: string; address?: string }) =>
+    request<AuthResponse>('/auth/register-with-otp', { method: 'POST', body: data, auth: false }),
 
   logout: () =>
     request<void>('/auth/logout', { method: 'POST' }),
@@ -225,6 +235,9 @@ export interface Order {
   status: OrderStatus;
   totalPrice: string;
   paymentMethod: PaymentMethod;
+  paymentStatus?: 'UNPAID' | 'PAID' | 'REFUNDED';
+  paymentCode?: string;
+  vietQrUrl?: string;
   recipientName: string;
   recipientPhone: string;
   recipientAddress: string;
@@ -280,6 +293,9 @@ export const ordersApi = {
 
   getById: (id: string) =>
     request<Order>(`/orders/${id}`),
+
+  verifyPayment: (id: string) =>
+    request<{ paid: boolean; orderId: string; status: OrderStatus; message?: string }>(`/orders/${id}/verify-payment`, { method: 'POST' }),
 
   cancel: (id: string) =>
     request<Order>(`/orders/${id}/cancel`, { method: 'PATCH' }),

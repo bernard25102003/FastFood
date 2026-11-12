@@ -1,13 +1,13 @@
-﻿import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Navigate } from 'react-router';
 import { useCart } from '../contexts/CartContext';
 import { useAuth } from '../contexts/AuthContext';
-import { type PaymentMethod } from '../services/api';
+import { ordersApi, type PaymentMethod, type Order } from '../services/api';
 import { toast } from 'sonner';
-import { User, Phone, MapPin, CreditCard, Banknote, ShoppingBag, ChevronRight, Flame, Lock } from 'lucide-react';
+import { User, Phone, MapPin, CreditCard, Banknote, ShoppingBag, ChevronRight, Flame, Lock, QrCode, CheckCircle2, Copy, Loader2, Sparkles } from 'lucide-react';
 
 export function CheckoutPage() {
-  const { items, totalPrice, createOrder, createVnpayPayment } = useCart();
+  const { items, totalPrice, createOrder } = useCart();
   const { user, isAuthenticated, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -20,9 +20,35 @@ export function CheckoutPage() {
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [createdOrder, setCreatedOrder] = useState<Order | null>(null);
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [isPaid, setIsPaid] = useState(false);
+
+  // Polling tự động kiểm tra SePay Webhook đã xác nhận đơn chưa
+  useEffect(() => {
+    if (!showQrModal || !createdOrder || isPaid) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const latest = await ordersApi.getById(createdOrder.id);
+        if (latest.status === 'CONFIRMED' || (latest as any).paymentStatus === 'PAID') {
+          setIsPaid(true);
+          clearInterval(interval);
+          toast.success('🎉 SePay đã nhận tiền thành công! Đơn hàng đã được xác nhận tự động.');
+          setTimeout(() => {
+            navigate(`/order-success/${createdOrder.id}`);
+          }, 1800);
+        }
+      } catch {
+        // bỏ qua lỗi tạm thời khi polling
+      }
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [showQrModal, createdOrder, isPaid, navigate]);
 
   if (authLoading) return null;
-  if (items.length === 0) return <Navigate to="/cart" replace />;
+  if (items.length === 0 && !showQrModal) return <Navigate to="/cart" replace />;
   if (!isAuthenticated) return <Navigate to="/login?redirect=/checkout" replace />;
 
   const validate = () => {
@@ -43,12 +69,15 @@ export function CheckoutPage() {
     if (!validate()) { toast.error('Vui lòng kiểm tra lại thông tin'); return; }
     setLoading(true);
     try {
+      const order = await createOrder(formData);
+      
+      // Nếu là chuyển khoản ngân hàng -> Mở modal VietQR SePay
       if (formData.paymentMethod === 'BANK_TRANSFER') {
-        const { paymentUrl } = await createVnpayPayment(formData);
-        window.location.href = paymentUrl;
+        setCreatedOrder(order);
+        setShowQrModal(true);
         return;
       }
-      const order = await createOrder(formData);
+
       toast.success('Đặt hàng thành công!');
       navigate(`/order-success/${order.id}`);
     } catch (error: any) {
@@ -172,10 +201,12 @@ export function CheckoutPage() {
                       onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value as PaymentMethod })}
                       className="ck-radio-hidden"
                     />
-                    <div className="ck-pay-icon vnpay">💳</div>
+                    <div className="ck-pay-icon vnpay">
+                      <QrCode size={22} className="text-primary" />
+                    </div>
                     <div className="ck-pay-text">
-                      <div className="ck-pay-name">VNPAY</div>
-                      <div className="ck-pay-desc">ATM, QR, thẻ nội địa</div>
+                      <div className="ck-pay-name">Chuyển khoản VietQR (SePay)</div>
+                      <div className="ck-pay-desc">Quét mã QR tự động xác nhận sau 3 giây</div>
                     </div>
                     <div className="ck-pay-check" aria-hidden="true" />
                   </label>
@@ -183,8 +214,8 @@ export function CheckoutPage() {
 
                 {formData.paymentMethod === 'BANK_TRANSFER' && (
                   <div className="ck-vnpay-notice">
-                    <Lock size={14} />
-                    Sau khi đặt hàng, bạn sẽ được chuyển đến cổng VNPAY để hoàn tất thanh toán an toàn.
+                    <Sparkles size={14} className="text-yellow-600" />
+                    Hệ thống sẽ tạo mã VietQR tự động. Sau khi chuyển tiền, hệ thống SePay sẽ tự động duyệt đơn ngay lập tức!
                   </div>
                 )}
               </div>
@@ -198,7 +229,7 @@ export function CheckoutPage() {
                 {loading ? (
                   <><span className="ck-spinner" /> Đang xử lý...</>
                 ) : formData.paymentMethod === 'BANK_TRANSFER' ? (
-                  <>💳 Thanh toán với VNPAY <ChevronRight size={20} /></>
+                  <><QrCode size={20} /> Lấy mã VietQR thanh toán <ChevronRight size={20} /></>
                 ) : (
                   <><Flame size={20} /> Đặt hàng ngay <ChevronRight size={20} /></>
                 )}
@@ -258,6 +289,123 @@ export function CheckoutPage() {
           </div>
         </div>
       </div>
+
+      {/* ── SEPAY VIETQR PAYMENT MODAL ── */}
+      {showQrModal && createdOrder && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 md:p-8 shadow-2xl text-center relative border border-border">
+            {isPaid ? (
+              <div className="py-8">
+                <CheckCircle2 size={64} className="text-green-500 mx-auto mb-4 animate-bounce" />
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Thanh toán thành công!</h2>
+                <p className="text-sm text-gray-600 mb-6">
+                  SePay đã xác nhận giao dịch của bạn. Đang chuyển tới trang chi tiết đơn hàng...
+                </p>
+                <div className="flex items-center justify-center gap-2 text-primary text-sm font-semibold">
+                  <Loader2 size={18} className="animate-spin" /> Đang chuyển hướng...
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div className="flex items-center justify-between pb-4 border-b border-gray-100 mb-4">
+                  <div className="flex items-center gap-2 text-left">
+                    <div className="w-8 h-8 rounded-full bg-red-100 text-red-600 flex items-center justify-center font-bold text-sm">
+                      QR
+                    </div>
+                    <div>
+                      <div className="text-xs uppercase tracking-wider text-gray-400 font-bold">VietQR SePay</div>
+                      <div className="text-sm font-bold text-gray-900">Quét mã để thanh toán</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowQrModal(false);
+                      navigate(`/orders/${createdOrder.id}`);
+                    }}
+                    className="text-gray-400 hover:text-gray-600 text-xs px-2 py-1 rounded bg-gray-50"
+                  >
+                    Đóng
+                  </button>
+                </div>
+
+                {/* QR Image */}
+                <div className="bg-gradient-to-b from-gray-50 to-white p-4 rounded-2xl border border-gray-200 inline-block mb-4 shadow-inner">
+                  {createdOrder.vietQrUrl ? (
+                    <img
+                      src={createdOrder.vietQrUrl}
+                      alt="VietQR Payment"
+                      className="w-56 h-56 object-contain mx-auto rounded-xl"
+                    />
+                  ) : (
+                    <div className="w-56 h-56 flex items-center justify-center text-sm text-gray-400">
+                      Đang tạo mã VietQR...
+                    </div>
+                  )}
+                </div>
+
+                {/* Thông tin chuyển khoản */}
+                <div className="bg-red-50/70 rounded-xl p-3 mb-4 text-left space-y-2 border border-red-100 text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Số tiền:</span>
+                    <span className="font-extrabold text-red-600 text-sm">
+                      {createdOrder.totalPrice.toLocaleString('vi-VN')} đ
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Nội dung CK:</span>
+                    <div className="flex items-center gap-1.5 font-mono font-bold text-gray-900 bg-white px-2 py-0.5 rounded border border-red-200">
+                      <span>{createdOrder.paymentCode || `FF${createdOrder.id.slice(-5)}`}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(createdOrder.paymentCode || '');
+                          toast.success('Đã sao chép nội dung chuyển khoản!');
+                        }}
+                        className="text-red-500 hover:text-red-700"
+                        title="Sao chép"
+                      >
+                        <Copy size={12} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Polling live feedback */}
+                <div className="flex items-center justify-center gap-2 text-xs text-gray-500 mb-4 bg-gray-50 py-2 rounded-lg">
+                  <Loader2 size={14} className="animate-spin text-red-500" />
+                  <span>Đang chờ chuyển khoản (Tự động duyệt qua SePay...)</span>
+                </div>
+
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const latest = await ordersApi.getById(createdOrder.id);
+                      if (latest.status === 'CONFIRMED' || (latest as any).paymentStatus === 'PAID') {
+                        setIsPaid(true);
+                        toast.success('Đã xác nhận thanh toán!');
+                        navigate(`/order-success/${createdOrder.id}`);
+                      } else {
+                        toast.info('Hệ thống chưa nhận được tiền. Nếu đã chuyển, vui lòng đợi 5-10 giây để SePay đồng bộ.');
+                      }
+                    }}
+                    className="w-full bg-primary text-primary-foreground py-2.5 rounded-xl font-bold text-xs hover:bg-primary/90 transition-colors"
+                  >
+                    Tôi đã chuyển khoản xong
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/orders/${createdOrder.id}`)}
+                    className="w-full text-xs text-gray-400 hover:text-gray-600 py-1"
+                  >
+                    Xem đơn hàng và thanh toán sau
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

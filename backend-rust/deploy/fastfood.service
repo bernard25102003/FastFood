@@ -1,0 +1,21 @@
+[Unit]
+Description=FastFood Rust High-Performance API Service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/fastfood
+ExecStart=/opt/fastfood/fastfood-backend
+Restart=always
+RestartSec=3
+LimitNOFILE=65535
+EnvironmentFile=/opt/fastfood/.env
+
+# Hardening bảo mật process
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+
