@@ -23,6 +23,28 @@ pub struct Pagination {
     pub limit: i64,
     pub total: i64,
     pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
+}
+
+impl Pagination {
+    pub fn new(page: i64, limit: i64, total: i64) -> Self {
+        let total_pages = if total == 0 {
+            1
+        } else if limit <= 0 {
+            1
+        } else {
+            (total as f64 / limit as f64).ceil() as i64
+        };
+        Self {
+            page,
+            limit,
+            total,
+            total_pages,
+            has_next: page < total_pages,
+            has_prev: page > 1,
+        }
+    }
 }
 
 #[derive(Serialize, Clone, Debug)]

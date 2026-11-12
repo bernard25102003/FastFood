@@ -3,6 +3,8 @@ use axum::{
     response::Response,
     Json,
 };
+use chrono::{DateTime, Utc};
+use serde_json::json;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -11,7 +13,10 @@ use crate::{
     middleware::auth::RequireAdmin,
     models::{
         category::Category,
-        product::{CreateProductDto, Product, ProductDb, ProductQuery, UpdateProductDto},
+        product::{
+            CreateProductDto, Product, ProductDb, ProductImageItem, ProductQuery,
+            ReorderImagesDto, UpdateProductDto,
+        },
     },
     services::imagekit::ImageKitService,
     state::AppState,
@@ -88,52 +93,46 @@ pub async fn list_products(
     if raw_products.is_empty() {
         let paginated = PaginatedResponse {
             items: Vec::<Product>::new(),
-            pagination: Pagination {
-                page,
-                limit,
-                total: total.0,
-                total_pages: (total.0 as f64 / limit as f64).ceil() as i64,
-            },
+            pagination: Pagination::new(page, limit, total.0),
         };
         return Ok(send_success(paginated, "Danh sách món ăn"));
     }
 
-    // 3. Lấy ảnh tương ứng cho các sản phẩm
+    // 3. Lấy ảnh tương ứng cho các sản phẩm (Parameterized Query chống SQLi)
     let product_ids: Vec<String> = raw_products.iter().map(|p| p.id.clone()).collect();
-    let in_clause = product_ids
-        .iter()
-        .map(|id| format!("'{}'", id))
-        .collect::<Vec<_>>()
-        .join(",");
-
+    let img_placeholders = vec!["?"; product_ids.len()].join(",");
     let images_query = format!(
-        "SELECT product_id, image_url FROM product_images WHERE product_id IN ({}) ORDER BY is_primary DESC, display_order ASC",
-        in_clause
+        "SELECT id, product_id, image_url, display_order, created_at FROM product_images WHERE product_id IN ({}) ORDER BY is_primary DESC, display_order ASC",
+        img_placeholders
     );
 
-    let raw_images: Vec<(String, String)> = sqlx::query_as(&images_query)
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default();
+    let mut img_query_builder = sqlx::query_as::<_, (String, String, String, i32, DateTime<Utc>)>(&images_query);
+    for pid in &product_ids {
+        img_query_builder = img_query_builder.bind(pid);
+    }
+    let raw_images = img_query_builder.fetch_all(&state.db).await.unwrap_or_default();
 
-    let mut images_map: HashMap<String, Vec<String>> = HashMap::new();
-    for (pid, url) in raw_images {
-        images_map.entry(pid).or_default().push(url);
+    let mut images_map: HashMap<String, Vec<ProductImageItem>> = HashMap::new();
+    for (img_id, pid, url, display_order, created_at) in raw_images {
+        images_map.entry(pid.clone()).or_default().push(ProductImageItem {
+            id: img_id,
+            product_id: pid,
+            thumbnail_url: Some(url.clone()),
+            image_url: url,
+            display_order,
+            created_at: Some(created_at),
+        });
     }
 
-    // 4. Lấy danh mục tương ứng
+    // 4. Lấy danh mục tương ứng (Parameterized Query chống SQLi)
     let cat_ids: Vec<String> = raw_products.iter().map(|p| p.category_id.clone()).collect();
-    let cat_in_clause = cat_ids
-        .iter()
-        .map(|id| format!("'{}'", id))
-        .collect::<Vec<_>>()
-        .join(",");
-
-    let cat_query = format!("SELECT * FROM categories WHERE id IN ({})", cat_in_clause);
-    let raw_cats: Vec<Category> = sqlx::query_as(&cat_query)
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default();
+    let cat_placeholders = vec!["?"; cat_ids.len()].join(",");
+    let cat_query = format!("SELECT * FROM categories WHERE id IN ({})", cat_placeholders);
+    let mut cat_query_builder = sqlx::query_as::<_, Category>(&cat_query);
+    for cid in &cat_ids {
+        cat_query_builder = cat_query_builder.bind(cid);
+    }
+    let raw_cats: Vec<Category> = cat_query_builder.fetch_all(&state.db).await.unwrap_or_default();
 
     let mut cat_map: HashMap<String, Category> = HashMap::new();
     for cat in raw_cats {
@@ -151,20 +150,9 @@ pub async fn list_products(
         })
         .collect();
 
-    let total_pages = if total.0 == 0 {
-        1
-    } else {
-        (total.0 as f64 / limit as f64).ceil() as i64
-    };
-
     let paginated = PaginatedResponse {
         items,
-        pagination: Pagination {
-            page,
-            limit,
-            total: total.0,
-            total_pages,
-        },
+        pagination: Pagination::new(page, limit, total.0),
     };
 
     Ok(send_success(paginated, "Danh sách món ăn"))
@@ -182,22 +170,32 @@ pub async fn get_product_by_id(
 
     let product_db = product_db.ok_or_else(|| AppError::NotFound("Không tìm thấy món ăn".to_string()))?;
 
-    let images: Vec<(String,)> = sqlx::query_as(
-        "SELECT image_url FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, display_order ASC",
+    let raw_images: Vec<(String, String, String, i32, DateTime<Utc>)> = sqlx::query_as(
+        "SELECT id, product_id, image_url, display_order, created_at FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, display_order ASC",
     )
     .bind(&product_id)
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
 
-    let image_urls: Vec<String> = images.into_iter().map(|(u,)| u).collect();
+    let product_images: Vec<ProductImageItem> = raw_images
+        .into_iter()
+        .map(|(img_id, pid, url, display_order, created_at)| ProductImageItem {
+            id: img_id,
+            product_id: pid,
+            thumbnail_url: Some(url.clone()),
+            image_url: url,
+            display_order,
+            created_at: Some(created_at),
+        })
+        .collect();
 
     let category: Option<Category> = sqlx::query_as("SELECT * FROM categories WHERE id = ? LIMIT 1")
         .bind(&product_db.category_id)
         .fetch_optional(&state.db)
         .await?;
 
-    let product = product_db.to_product(image_urls, category);
+    let product = product_db.to_product(product_images, category);
     Ok(send_success(product, "Chi tiết món ăn"))
 }
 
@@ -251,16 +249,27 @@ pub async fn create_product(
         .fetch_one(&state.db)
         .await?;
 
-    let images: Vec<(String,)> = sqlx::query_as(
-        "SELECT image_url FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, display_order ASC",
+    let raw_images: Vec<(String, String, String, i32, DateTime<Utc>)> = sqlx::query_as(
+        "SELECT id, product_id, image_url, display_order, created_at FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, display_order ASC",
     )
     .bind(&id)
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
 
-    let image_urls: Vec<String> = images.into_iter().map(|(u,)| u).collect();
-    let product = product_db.to_product(image_urls, None);
+    let product_images: Vec<ProductImageItem> = raw_images
+        .into_iter()
+        .map(|(img_id, pid, url, display_order, created_at)| ProductImageItem {
+            id: img_id,
+            product_id: pid,
+            thumbnail_url: Some(url.clone()),
+            image_url: url,
+            display_order,
+            created_at: Some(created_at),
+        })
+        .collect();
+
+    let product = product_db.to_product(product_images, None);
 
     Ok(send_created(product, "Tạo món ăn thành công"))
 }
@@ -314,16 +323,27 @@ pub async fn update_product(
         .fetch_one(&state.db)
         .await?;
 
-    let images: Vec<(String,)> = sqlx::query_as(
-        "SELECT image_url FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, display_order ASC",
+    let raw_images: Vec<(String, String, String, i32, DateTime<Utc>)> = sqlx::query_as(
+        "SELECT id, product_id, image_url, display_order, created_at FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, display_order ASC",
     )
     .bind(&product_id)
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
 
-    let image_urls: Vec<String> = images.into_iter().map(|(u,)| u).collect();
-    let product = product_db.to_product(image_urls, None);
+    let product_images: Vec<ProductImageItem> = raw_images
+        .into_iter()
+        .map(|(img_id, pid, url, display_order, created_at)| ProductImageItem {
+            id: img_id,
+            product_id: pid,
+            thumbnail_url: Some(url.clone()),
+            image_url: url,
+            display_order,
+            created_at: Some(created_at),
+        })
+        .collect();
+
+    let product = product_db.to_product(product_images, None);
 
     Ok(send_success(product, "Cập nhật món ăn thành công"))
 }
@@ -354,7 +374,7 @@ pub async fn upload_product_images(
     mut multipart: Multipart,
 ) -> Result<Response, AppError> {
     let imagekit = ImageKitService::new(&state.http_client, &state.config);
-    let mut uploaded_urls = Vec::new();
+    let mut uploaded_images: Vec<ProductImageItem> = Vec::new();
 
     while let Some(field) = multipart.next_field().await.map_err(|e| AppError::BadRequest(e.to_string()))? {
         let file_name = field.file_name().unwrap_or("image.jpg").to_string();
@@ -363,6 +383,7 @@ pub async fn upload_product_images(
         if !data.is_empty() {
             let uploaded_url = imagekit.upload_file(&file_name, data.to_vec()).await?;
             let img_id = Uuid::new_v4().to_string();
+            let now = Utc::now();
 
             sqlx::query(
                 "INSERT INTO product_images (id, product_id, image_url, is_primary, display_order) VALUES (?, ?, ?, 0, 99)",
@@ -373,10 +394,59 @@ pub async fn upload_product_images(
             .execute(&state.db)
             .await?;
 
-            uploaded_urls.push(uploaded_url);
+            uploaded_images.push(ProductImageItem {
+                id: img_id,
+                product_id: product_id.clone(),
+                thumbnail_url: Some(uploaded_url.clone()),
+                image_url: uploaded_url,
+                display_order: 99,
+                created_at: Some(now),
+            });
         }
     }
 
-    Ok(send_success(uploaded_urls, "Tải ảnh sản phẩm thành công"))
+    Ok(send_success(json!({ "images": uploaded_images }), "Tải ảnh sản phẩm thành công"))
+}
+
+/// DELETE /api/products/:productId/images/:imageId (Admin only)
+pub async fn delete_product_image(
+    State(state): State<AppState>,
+    _admin: RequireAdmin,
+    Path((product_id, image_id)): Path<(String, String)>,
+) -> Result<Response, AppError> {
+    let res = sqlx::query("DELETE FROM product_images WHERE id = ? AND product_id = ?")
+        .bind(&image_id)
+        .bind(&product_id)
+        .execute(&state.db)
+        .await?;
+
+    if res.rows_affected() == 0 {
+        return Err(AppError::NotFound("Không tìm thấy hình ảnh để xóa".to_string()));
+    }
+
+    Ok(send_no_content())
+}
+
+/// PATCH /api/products/:productId/images/reorder (Admin only)
+pub async fn reorder_product_images(
+    State(state): State<AppState>,
+    _admin: RequireAdmin,
+    Path(product_id): Path<String>,
+    Json(payload): Json<ReorderImagesDto>,
+) -> Result<Response, AppError> {
+    let mut tx = state.db.begin().await?;
+
+    for (index, image_id) in payload.image_ids.iter().enumerate() {
+        sqlx::query("UPDATE product_images SET display_order = ? WHERE id = ? AND product_id = ?")
+            .bind(index as i32)
+            .bind(image_id)
+            .bind(&product_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    tx.commit().await?;
+
+    Ok(send_success(serde_json::json!({}), "Sắp xếp thứ tự ảnh thành công"))
 }
 

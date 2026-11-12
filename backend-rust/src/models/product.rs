@@ -17,6 +17,19 @@ pub struct ProductDb {
     pub updated_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductImageItem {
+    pub id: String,
+    pub product_id: String,
+    pub image_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thumbnail_url: Option<String>,
+    pub display_order: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<DateTime<Utc>>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Product {
@@ -30,13 +43,13 @@ pub struct Product {
     pub sold_count: i32,
     pub avg_rating: f64,
     pub review_count: i32,
-    pub images: Vec<String>,
+    pub images: Vec<ProductImageItem>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
 impl ProductDb {
-    pub fn to_product(self, images: Vec<String>, category: Option<Category>) -> Product {
+    pub fn to_product(self, images: Vec<ProductImageItem>, category: Option<Category>) -> Product {
         Product {
             id: self.id,
             name: self.name,
@@ -72,6 +85,12 @@ pub struct UpdateProductDto {
     pub category_id: Option<String>,
     pub description: Option<String>,
     pub images: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReorderImagesDto {
+    pub image_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

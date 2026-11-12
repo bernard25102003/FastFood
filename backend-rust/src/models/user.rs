@@ -80,3 +80,11 @@ pub struct ForgotPasswordDto {
     pub new_password: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UserQuery {
+    pub page: Option<i64>,
+    pub limit: Option<i64>,
+    pub role: Option<String>,
+    pub status: Option<String>,
+}
+

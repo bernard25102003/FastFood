@@ -49,6 +49,33 @@ pub async fn process_transaction_record(
         .await?;
 
         if let Some(ord) = order {
+            // Kiểm tra số tiền nhận được so với tổng tiền đơn hàng
+            if amount_in < ord.total_price {
+                tracing::warn!(
+                    "⚠️ [Payment Processor] Đơn hàng [{}] yêu cầu {:.0}đ nhưng chỉ nhận được {:.0}đ! Không tự động xác nhận đơn.",
+                    ord.id, ord.total_price, amount_in
+                );
+
+                // Ghi nhận log giao dịch vào payment_transactions kèm order_id để quản trị viên đối soát thủ công
+                let tx_rec_id = Uuid::new_v4().to_string();
+                sqlx::query(
+                    "INSERT INTO payment_transactions (id, order_id, gateway, transaction_id, amount_in, content, bank_brand, account_number, transaction_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                )
+                .bind(&tx_rec_id)
+                .bind(&ord.id)
+                .bind(gateway)
+                .bind(transaction_id)
+                .bind(amount_in)
+                .bind(content)
+                .bind(bank_brand)
+                .bind(account_number)
+                .bind(transaction_date)
+                .execute(db)
+                .await?;
+
+                return Ok(None);
+            }
+
             tracing::info!(
                 "🎉 [Payment Processor] Khớp đơn hàng #{} (ID: {}). Số tiền yêu cầu: {}đ, Số tiền nhận: {}đ",
                 ord.id, ord.id, ord.total_price, amount_in

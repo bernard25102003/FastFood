@@ -48,33 +48,32 @@ pub async fn create_order(
         return Err(AppError::Validation("Vui lòng điền đầy đủ tên, số điện thoại và địa chỉ giao hàng".to_string()));
     }
 
-    // 1. Lấy thông tin các sản phẩm từ DB để tính tiền chuẩn
+    // 1. Lấy thông tin các sản phẩm từ DB để tính tiền chuẩn (Parameterized Query chống SQLi)
     let pids: Vec<String> = payload.items.iter().map(|i| i.product_id.clone()).collect();
-    let in_clause = pids
-        .iter()
-        .map(|id| format!("'{}'", id))
-        .collect::<Vec<_>>()
-        .join(",");
+    let placeholders = vec!["?"; pids.len()].join(",");
 
-    let query_str = format!("SELECT id, name, price FROM products WHERE id IN ({})", in_clause);
-    let db_prods: Vec<(String, String, f64)> = sqlx::query_as(&query_str)
-        .fetch_all(&state.db)
-        .await?;
+    let query_str = format!("SELECT id, name, price FROM products WHERE id IN ({})", placeholders);
+    let mut prod_q = sqlx::query_as::<_, (String, String, f64)>(&query_str);
+    for pid in &pids {
+        prod_q = prod_q.bind(pid);
+    }
+    let db_prods: Vec<(String, String, f64)> = prod_q.fetch_all(&state.db).await?;
 
     let prod_map: HashMap<String, (String, f64)> = db_prods
         .into_iter()
         .map(|(id, name, price)| (id, (name, price)))
         .collect();
 
-    // Lấy ảnh đại diện của từng sản phẩm
+    // Lấy ảnh đại diện của từng sản phẩm (Parameterized Query chống SQLi)
     let img_query = format!(
         "SELECT product_id, image_url FROM product_images WHERE product_id IN ({}) ORDER BY is_primary DESC",
-        in_clause
+        placeholders
     );
-    let raw_imgs: Vec<(String, String)> = sqlx::query_as(&img_query)
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default();
+    let mut img_q = sqlx::query_as::<_, (String, String)>(&img_query);
+    for pid in &pids {
+        img_q = img_q.bind(pid);
+    }
+    let raw_imgs: Vec<(String, String)> = img_q.fetch_all(&state.db).await.unwrap_or_default();
 
     let mut img_map: HashMap<String, String> = HashMap::new();
     for (pid, url) in raw_imgs {
@@ -163,12 +162,7 @@ pub async fn create_order(
         .execute(&mut *tx)
         .await?;
 
-        // Tăng lượt bán (sold_count) của sản phẩm
-        sqlx::query("UPDATE products SET sold_count = sold_count + ? WHERE id = ?")
-            .bind(qty)
-            .bind(pid)
-            .execute(&mut *tx)
-            .await?;
+        // Lưu ý: sold_count không tăng tại đây mà chỉ tăng khi đơn hàng đạt trạng thái COMPLETED
     }
 
     tx.commit().await?;
@@ -219,14 +213,14 @@ pub async fn list_my_orders(
 
     if !raw_orders.is_empty() {
         let order_ids: Vec<String> = raw_orders.iter().map(|o| o.id.clone()).collect();
-        let in_clause = order_ids
-            .iter()
-            .map(|id| format!("'{}'", id))
-            .collect::<Vec<_>>()
-            .join(",");
+        let placeholders = vec!["?"; order_ids.len()].join(",");
 
-        let items_query = format!("SELECT * FROM order_items WHERE order_id IN ({})", in_clause);
-        let raw_items: Vec<OrderItemDb> = sqlx::query_as(&items_query)
+        let items_query = format!("SELECT * FROM order_items WHERE order_id IN ({})", placeholders);
+        let mut items_q = sqlx::query_as::<_, OrderItemDb>(&items_query);
+        for oid in &order_ids {
+            items_q = items_q.bind(oid);
+        }
+        let raw_items: Vec<OrderItemDb> = items_q
             .fetch_all(&state.db)
             .await
             .unwrap_or_default();
@@ -256,16 +250,9 @@ pub async fn list_my_orders(
         }
     }
 
-    let total_pages = if total.0 == 0 { 1 } else { (total.0 as f64 / limit as f64).ceil() as i64 };
-
     let paginated = PaginatedResponse {
         items,
-        pagination: Pagination {
-            page,
-            limit,
-            total: total.0,
-            total_pages,
-        },
+        pagination: Pagination::new(page, limit, total.0),
     };
 
     Ok(send_success(paginated, "Danh sách đơn hàng của bạn"))
@@ -358,14 +345,14 @@ pub async fn list_all_orders(
     let mut items = Vec::new();
     if !raw_orders.is_empty() {
         let order_ids: Vec<String> = raw_orders.iter().map(|o| o.id.clone()).collect();
-        let in_clause = order_ids
-            .iter()
-            .map(|id| format!("'{}'", id))
-            .collect::<Vec<_>>()
-            .join(",");
+        let placeholders = vec!["?"; order_ids.len()].join(",");
 
-        let items_query = format!("SELECT * FROM order_items WHERE order_id IN ({})", in_clause);
-        let raw_items: Vec<OrderItemDb> = sqlx::query_as(&items_query)
+        let items_query = format!("SELECT * FROM order_items WHERE order_id IN ({})", placeholders);
+        let mut items_q = sqlx::query_as::<_, OrderItemDb>(&items_query);
+        for oid in &order_ids {
+            items_q = items_q.bind(oid);
+        }
+        let raw_items: Vec<OrderItemDb> = items_q
             .fetch_all(&state.db)
             .await
             .unwrap_or_default();
@@ -395,43 +382,96 @@ pub async fn list_all_orders(
         }
     }
 
-    let total_pages = if total.0 == 0 { 1 } else { (total.0 as f64 / limit as f64).ceil() as i64 };
-
     let paginated = PaginatedResponse {
         items,
-        pagination: Pagination {
-            page,
-            limit,
-            total: total.0,
-            total_pages,
-        },
+        pagination: Pagination::new(page, limit, total.0),
     };
 
     Ok(send_success(paginated, "Danh sách quản lý đơn hàng"))
 }
 
-/// PATCH /api/orders/:orderId/status (Admin cập nhật trạng thái đơn)
+/// PATCH /api/orders/:orderId/status & /api/orders/admin/:orderId/status (Admin cập nhật trạng thái đơn)
 pub async fn update_order_status(
     State(state): State<AppState>,
     _admin: RequireAdmin,
     Path(order_id): Path<String>,
     Json(payload): Json<UpdateOrderStatusDto>,
 ) -> Result<Response, AppError> {
+    let order_db: Option<OrderDb> = sqlx::query_as("SELECT * FROM orders WHERE id = ? LIMIT 1")
+        .bind(&order_id)
+        .fetch_optional(&state.db)
+        .await?;
+
+    let order_db = order_db.ok_or_else(|| AppError::NotFound("Không tìm thấy đơn hàng".to_string()))?;
+    let current_status = order_db.status.as_str();
+    let target_status = payload.status.trim().to_uppercase();
+
+    // 1. Kiểm tra State Machine transition
+    let valid_next = match current_status {
+        "PENDING" => vec!["CONFIRMED", "CANCELLED"],
+        "CONFIRMED" => vec!["SHIPPING", "CANCELLED"],
+        "SHIPPING" => vec!["COMPLETED", "CANCELLED"],
+        "COMPLETED" => {
+            return Err(AppError::BadRequest("Đơn hàng đã hoàn thành, không thể thay đổi trạng thái nữa.".to_string()));
+        }
+        "CANCELLED" => {
+            return Err(AppError::BadRequest("Đơn hàng đã bị hủy, không thể thay đổi trạng thái nữa.".to_string()));
+        }
+        _ => vec![],
+    };
+
+    if current_status == target_status {
+        let raw_items: Vec<OrderItemDb> = sqlx::query_as("SELECT * FROM order_items WHERE order_id = ?")
+            .bind(&order_id)
+            .fetch_all(&state.db)
+            .await
+            .unwrap_or_default();
+        let items: Vec<OrderItem> = raw_items.into_iter().map(|i| i.to_item()).collect();
+        return Ok(send_success(order_db.to_order(items, None), "Trạng thái đơn hàng không đổi"));
+    }
+
+    if !valid_next.contains(&target_status.as_str()) {
+        return Err(AppError::BadRequest(format!(
+            "Không thể chuyển trạng thái đơn hàng từ '{}' sang '{}'. Trạng thái tiếp theo hợp lệ: {:?}",
+            current_status, target_status, valid_next
+        )));
+    }
+
+    let mut tx = state.db.begin().await?;
     let now = Utc::now();
-    let confirmed_at = if payload.status == "CONFIRMED" { Some(now) } else { None };
-    let completed_at = if payload.status == "COMPLETED" { Some(now) } else { None };
+    let confirmed_at = if target_status == "CONFIRMED" { Some(now) } else { None };
+    let completed_at = if target_status == "COMPLETED" { Some(now) } else { None };
 
     sqlx::query(
         "UPDATE orders SET status = ?, confirmed_at = COALESCE(?, confirmed_at), completed_at = COALESCE(?, completed_at) WHERE id = ?",
     )
-    .bind(&payload.status)
+    .bind(&target_status)
     .bind(confirmed_at)
     .bind(completed_at)
     .bind(&order_id)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
 
-    let order_db: OrderDb = sqlx::query_as("SELECT * FROM orders WHERE id = ?")
+    // Khi đơn hàng đạt trạng thái COMPLETED, tăng sold_count của các sản phẩm trong đơn
+    if target_status == "COMPLETED" {
+        let items: Vec<(String, i32)> = sqlx::query_as("SELECT product_id, quantity FROM order_items WHERE order_id = ?")
+            .bind(&order_id)
+            .fetch_all(&mut *tx)
+            .await
+            .unwrap_or_default();
+
+        for (pid, qty) in items {
+            sqlx::query("UPDATE products SET sold_count = sold_count + ? WHERE id = ?")
+                .bind(qty)
+                .bind(&pid)
+                .execute(&mut *tx)
+                .await?;
+        }
+    }
+
+    tx.commit().await?;
+
+    let updated_order: OrderDb = sqlx::query_as("SELECT * FROM orders WHERE id = ?")
         .bind(&order_id)
         .fetch_one(&state.db)
         .await?;
@@ -443,7 +483,7 @@ pub async fn update_order_status(
         .unwrap_or_default();
 
     let items: Vec<OrderItem> = raw_items.into_iter().map(|i| i.to_item()).collect();
-    let order = order_db.to_order(items, None);
+    let order = updated_order.to_order(items, None);
 
     Ok(send_success(order, "Cập nhật trạng thái đơn hàng thành công"))
 }

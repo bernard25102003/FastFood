@@ -33,80 +33,90 @@ pub async fn sepay_webhook(
     headers: HeaderMap,
     body_bytes: Bytes,
 ) -> Result<Response, AppError> {
-    // 1. Xác thực bảo mật Webhook (Hỗ trợ cả HMAC-SHA256 và API Key)
+    // 1. Xác thực bảo mật Webhook (Bắt buộc cấu hình SEPAY_WEBHOOK_SECRET)
     let secret = state.config.sepay_webhook_secret.trim();
-    if !secret.is_empty() {
-        let sig_header = headers
-            .get("x-sepay-signature")
-            .or_else(|| headers.get("X-SePay-Signature"))
+    if secret.is_empty() {
+        tracing::error!("⛔ [SePay Webhook] SEPAY_WEBHOOK_SECRET chưa được cấu hình. Từ chối yêu cầu.");
+        return Err(AppError::Unauthorized("Hệ thống chưa cấu hình SEPAY_WEBHOOK_SECRET".to_string()));
+    }
+
+    let masked_secret = if secret.len() > 6 {
+        format!("***{}", &secret[secret.len() - 4..])
+    } else {
+        "***".to_string()
+    };
+
+    let sig_header = headers
+        .get("x-sepay-signature")
+        .or_else(|| headers.get("X-SePay-Signature"))
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim());
+
+    let timestamp_header = headers
+        .get("x-sepay-timestamp")
+        .or_else(|| headers.get("X-SePay-Timestamp"))
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim());
+
+    if let Some(signature) = sig_header {
+        // Chế độ 1: Xác thực chữ ký HMAC-SHA256
+        let timestamp = timestamp_header.unwrap_or_default();
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+            .map_err(|e| AppError::Internal(format!("Lỗi khởi tạo HMAC: {}", e)))?;
+
+        mac.update(timestamp.as_bytes());
+        mac.update(b".");
+        mac.update(&body_bytes);
+
+        let expected_hex = hex::encode(mac.finalize().into_bytes());
+        let expected_sig = format!("sha256={}", expected_hex);
+
+        tracing::info!(
+            "🔍 [SePay HMAC Auth] Timestamp: '{}' | Signature nhận: '{}'",
+            timestamp,
+            signature
+        );
+
+        if signature != expected_sig && signature != expected_hex {
+            tracing::warn!("⛔ [SePay Webhook] Chữ ký HMAC-SHA256 không hợp lệ!");
+            return Err(AppError::Unauthorized("Chữ ký SePay HMAC-SHA256 không hợp lệ".to_string()));
+        }
+    } else {
+        // Chế độ 2: Xác thực qua Header Authorization (Apikey ...)
+        let auth_header = headers
+            .get("Authorization")
+            .or_else(|| headers.get("authorization"))
             .and_then(|v| v.to_str().ok())
-            .map(|s| s.trim());
+            .unwrap_or_default()
+            .trim();
 
-        let timestamp_header = headers
-            .get("x-sepay-timestamp")
-            .or_else(|| headers.get("X-SePay-Timestamp"))
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.trim());
-
-        if let Some(signature) = sig_header {
-            // Chế độ 1: Xác thực chữ ký HMAC-SHA256
-            let timestamp = timestamp_header.unwrap_or_default();
-            let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-                .map_err(|e| AppError::Internal(format!("Lỗi khởi tạo HMAC: {}", e)))?;
-
-            mac.update(timestamp.as_bytes());
-            mac.update(b".");
-            mac.update(&body_bytes);
-
-            let expected_hex = hex::encode(mac.finalize().into_bytes());
-            let expected_sig = format!("sha256={}", expected_hex);
-
-            tracing::info!(
-                "🔍 [SePay HMAC Auth] Timestamp: '{}' | Signature nhận: '{}' | Kì vọng: '{}'",
-                timestamp,
-                signature,
-                expected_sig
-            );
-
-            if signature != expected_sig && signature != expected_hex {
-                tracing::warn!("⛔ [SePay Webhook] Chữ ký HMAC-SHA256 không hợp lệ!");
-                return Err(AppError::Unauthorized("Chữ ký SePay HMAC-SHA256 không hợp lệ".to_string()));
-            }
+        let masked_auth = if auth_header.len() > 8 {
+            format!("{}***", &auth_header[..7])
         } else {
-            // Chế độ 2: Xác thực qua Header Authorization (Apikey ...)
-            let auth_header = headers
-                .get("Authorization")
-                .or_else(|| headers.get("authorization"))
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or_default()
-                .trim();
+            "***".to_string()
+        };
 
-            tracing::info!(
-                "🔍 [SePay Webhook Auth Check] Header nhận: '{}' | Secret cấu hình: '{}'",
-                auth_header,
-                secret
-            );
+        tracing::info!(
+            "🔍 [SePay Webhook Auth Check] Header nhận: '{}' | Secret cấu hình: '{}'",
+            masked_auth,
+            masked_secret
+        );
 
-            let expected_key1 = format!("Apikey {}", secret);
-            let expected_key2 = format!("ApiKey {}", secret);
-            let expected_key3 = format!("Bearer {}", secret);
-            let expected_key4 = format!("apikey {}", secret);
+        let expected_key1 = format!("Apikey {}", secret);
+        let expected_key2 = format!("ApiKey {}", secret);
+        let expected_key3 = format!("Bearer {}", secret);
+        let expected_key4 = format!("apikey {}", secret);
 
-            let is_valid = auth_header == expected_key1
-                || auth_header == expected_key2
-                || auth_header == expected_key3
-                || auth_header == expected_key4
-                || auth_header == secret
-                || (auth_header.contains(secret) && !secret.is_empty());
+        let is_valid = auth_header == expected_key1
+            || auth_header == expected_key2
+            || auth_header == expected_key3
+            || auth_header == expected_key4
+            || auth_header == secret
+            || (auth_header.contains(secret) && !secret.is_empty());
 
-            if !is_valid {
-                tracing::warn!(
-                    "⛔ [SePay Webhook] Từ chối: Sai Secret Token. Nhận được: '{}' | Kì vọng: 'Apikey {}'",
-                    auth_header,
-                    secret
-                );
-                return Err(AppError::Unauthorized("Sai mã bảo mật SePay Webhook".to_string()));
-            }
+        if !is_valid {
+            tracing::warn!("⛔ [SePay Webhook] Từ chối: Sai Secret Token hoặc Header không hợp lệ.");
+            return Err(AppError::Unauthorized("Sai mã bảo mật SePay Webhook".to_string()));
         }
     }
 

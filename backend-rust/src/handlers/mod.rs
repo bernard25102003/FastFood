@@ -43,6 +43,11 @@ pub fn create_router(state: AppState) -> Router {
         .route("/profile", get(users::get_profile).put(users::update_profile))
         .route("/change-password", put(users::change_password))
         .route("/", get(users::list_users))
+        .route("/admin", get(users::list_users))
+        .route("/admin/:id", get(users::get_user_by_id).delete(users::delete_user))
+        .route("/admin/:id/lock", patch(users::lock_user))
+        .route("/admin/:id/unlock", patch(users::unlock_user))
+        .route("/:id", delete(users::delete_user))
         .route("/:id/status", patch(users::toggle_user_status));
 
     // Categories routes
@@ -64,12 +69,17 @@ pub fn create_router(state: AppState) -> Router {
                 .put(products::update_product)
                 .delete(products::delete_product),
         )
-        .route("/:productId/images", post(products::upload_product_images));
+        .route("/:productId/images", post(products::upload_product_images))
+        .route("/:productId/images/reorder", patch(products::reorder_product_images))
+        .route("/:productId/images/:imageId", delete(products::delete_product_image));
 
     // Orders routes
     let orders_routes = Router::new()
         .route("/", post(orders::create_order).get(orders::list_my_orders))
         .route("/admin", get(orders::list_all_orders))
+        .route("/admin/all", get(orders::list_all_orders))
+        .route("/admin/:orderId", get(orders::get_order_by_id))
+        .route("/admin/:orderId/status", patch(orders::update_order_status))
         .route("/:orderId", get(orders::get_order_by_id))
         .route("/:orderId/verify-payment", post(payments::verify_order_payment))
         .route("/:orderId/status", patch(orders::update_order_status))
@@ -78,6 +88,8 @@ pub fn create_router(state: AppState) -> Router {
     // Reviews routes
     let reviews_routes = Router::new()
         .route("/product/:productId", get(reviews::list_product_reviews))
+        .route("/admin", get(reviews::list_all_reviews))
+        .route("/my", get(reviews::list_my_reviews))
         .route("/", post(reviews::create_review))
         .route("/:id", delete(reviews::delete_review));
 
