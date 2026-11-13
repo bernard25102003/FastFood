@@ -1,18 +1,15 @@
 -- ==============================================================================
 -- FASTFOOD SEED DATA (MySQL 8.0 & TiDB Cloud Compatible)
 -- Default Accounts:
---   Admin: admin@food.com / Admin@123
---   User:  user1@mem.com  / Admin@123
+--   Admin: bernard25102003@gmail.com / @Hoangdz2k3
 -- ==============================================================================
 
 USE `fastfood_db`;
 
 -- 1. USERS
--- Password hash for 'Admin@123'
+-- Password hash for '@Hoangdz2k3'
 INSERT INTO `users` (`id`, `name`, `email`, `password_hash`, `phone`, `address`, `role`, `status`) VALUES
-('usr-admin-001', 'Quản Trị Viên', 'admin@food.com', '$2b$10$37FdxlbUjQifDRjrNG5tOugdhURonmH7K45ZYH7XlobcCe7RKCPUe', '0901234567', 'Trụ sở FastFood, Q1, TP.HCM', 'ADMIN', 'ACTIVE'),
-('usr-user-001', 'Nguyễn Văn An', 'user1@mem.com', '$2b$10$37FdxlbUjQifDRjrNG5tOugdhURonmH7K45ZYH7XlobcCe7RKCPUe', '0902345678', '123 Đường Lê Lợi, Quận 1, TP.HCM', 'USER', 'ACTIVE'),
-('usr-user-002', 'Trần Thị Bình', 'user2@mem.com', '$2b$10$37FdxlbUjQifDRjrNG5tOugdhURonmH7K45ZYH7XlobcCe7RKCPUe', '0903456789', '456 Đường Nguyễn Trãi, Quận 5, TP.HCM', 'USER', 'ACTIVE');
+('usr-admin-001', 'Quản Trị Viên', 'bernard25102003@gmail.com', '$2b$10$LzhG/R/vxk.tipBWMjdmDuIo6tUEZAQiQt7kUrvF88DFsqB0d0ETe', '0901234567', 'Trụ sở FastFood, TP.HCM', 'ADMIN', 'ACTIVE');
 
 -- 2. CATEGORIES
 INSERT INTO `categories` (`id`, `name`, `description`, `icon`) VALUES
