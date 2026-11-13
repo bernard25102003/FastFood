@@ -35,10 +35,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 3. Kết nối Cơ sở dữ liệu TiDB Cloud (MySQL)
     tracing::info!("🔌 Đang kết nối TiDB Cloud Database...");
     let pool = MySqlPoolOptions::new()
-        .max_connections(20)
-        .min_connections(2)
+        .max_connections(25)
+        .min_connections(1)
         .acquire_timeout(Duration::from_secs(10))
-        .idle_timeout(Duration::from_secs(300))
+        .idle_timeout(Some(Duration::from_secs(60)))
+        .max_lifetime(Some(Duration::from_secs(180)))
+        .test_before_acquire(true)
         .connect(&config.database_url)
         .await
         .expect("❌ Không thể kết nối tới cơ sở dữ liệu TiDB Cloud. Vui lòng kiểm tra DATABASE_URL trong .env");
